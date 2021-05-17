@@ -81,6 +81,11 @@ LOCAL_SHARED_LIBRARIES := \
 	libutils \
 	liblog
 
+ifeq ($(TARGET_SOC), exynos3470)
+	LOCAL_C_INCLUDES += $(TOP)/hardware/samsung_slsi/exynos3470/include
+else
+	LOCAL_C_INCLUDES += $(TOP)/hardware/samsung_slsi/exynos/include
+endif
 
 LOCAL_MODULE := libgui
 
@@ -89,6 +94,18 @@ ifeq ($(TARGET_BOARD_PLATFORM), tegra)
 endif
 ifeq ($(TARGET_BOARD_PLATFORM), tegra3)
 	LOCAL_CFLAGS += -DDONT_USE_FENCE_SYNC
+endif
+
+ifeq ($(BOARD_USES_WIFI_DISPLAY), true)
+	LOCAL_CFLAGS += -DUSES_WIFI_DISPLAY
+endif
+
+ifeq ($(BOARD_USES_EXYNOS5_DSS_FEATURE), true)
+        LOCAL_CPPFLAGS += -DUSES_EXYNOS5_DSS_FEATURE
+endif
+
+ifeq ($(BOARD_USES_EXYNOS5_AFBC_FEATURE), true)
+	LOCAL_CFLAGS += -DEXYNOS_AFBC
 endif
 
 include $(BUILD_SHARED_LIBRARY)

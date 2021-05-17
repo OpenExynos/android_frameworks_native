@@ -422,10 +422,57 @@ status_t HWComposer::queryDisplayProperties(int disp) {
     }
 
     // FIXME: what should we set the format to?
+#ifdef USE_EXTERNAL_BGRA
+    if (disp == HWC_DISPLAY_EXTERNAL)
+        mDisplayData[disp].format = HAL_PIXEL_FORMAT_BGRA_8888;
+    else
+#endif
     mDisplayData[disp].format = HAL_PIXEL_FORMAT_RGBA_8888;
     mDisplayData[disp].connected = true;
     return NO_ERROR;
 }
+
+#ifdef USES_VIRTUAL_DISPLAY
+static const uint32_t VIRTUAL_DISPLAY_ATTRIBUTES[] = {
+    HWC_DISPLAY_COMPOSITION_TYPE,
+    HWC_DISPLAY_GLES_FORMAT,
+    HWC_DISPLAY_SINK_BQ_FORMAT,
+    HWC_DISPLAY_SINK_BQ_USAGE,
+    HWC_DISPLAY_SINK_BQ_WIDTH,
+    HWC_DISPLAY_SINK_BQ_HEIGHT,
+    HWC_DISPLAY_NO_ATTRIBUTE,
+};
+#define NUM_VIRTUAL_DISPLAY_ATTRIBUTES (sizeof(VIRTUAL_DISPLAY_ATTRIBUTES) / sizeof(VIRTUAL_DISPLAY_ATTRIBUTES)[0])
+status_t HWComposer::getVirtualDisplayProperties(int32_t id, uint32_t attribute, uint32_t* value) {
+    if (id < VIRTUAL_DISPLAY_ID_BASE || id >= int32_t(mNumDisplays) ||
+            !mAllocatedDisplayIDs.hasBit(id)) {
+        return BAD_INDEX;
+    }
+
+    // use zero as default value for unspecified attributes
+    int32_t values[NUM_VIRTUAL_DISPLAY_ATTRIBUTES - 1] = {0,};
+    uint32_t config;
+    size_t numConfigs = 1;
+    status_t err = mHwc->getDisplayConfigs(mHwc, id, &config, &numConfigs);
+    if (err != NO_ERROR) {
+        return err;
+    }
+
+    err = mHwc->getDisplayAttributes(mHwc, id, config, VIRTUAL_DISPLAY_ATTRIBUTES, values);
+    if (err != NO_ERROR) {
+        return err;
+    }
+
+    for (size_t i = 0; i < NUM_VIRTUAL_DISPLAY_ATTRIBUTES - 1; i++) {
+        if (attribute == VIRTUAL_DISPLAY_ATTRIBUTES[i]) {
+            *value = values[i];
+            return NO_ERROR;
+        }
+    }
+
+    return BAD_INDEX;
+}
+#endif
 
 status_t HWComposer::setVirtualDisplayProperties(int32_t id,
         uint32_t w, uint32_t h, uint32_t format) {
@@ -616,6 +663,12 @@ status_t HWComposer::createWorkList(int32_t id, size_t numLayers) {
             disp.framebufferTarget->visibleRegionScreen.numRects = 1;
             disp.framebufferTarget->visibleRegionScreen.rects =
                 &disp.framebufferTarget->displayFrame;
+#ifdef EXYNOS
+            disp.framebufferTarget->transparentRegion.numRects = 0;
+            disp.framebufferTarget->transparentRegion.rects = NULL;
+            disp.framebufferTarget->coveredOpaqueRegion.numRects = 0;
+            disp.framebufferTarget->coveredOpaqueRegion.rects = NULL;
+#endif
             disp.framebufferTarget->acquireFenceFd = -1;
             disp.framebufferTarget->releaseFenceFd = -1;
             disp.framebufferTarget->planeAlpha = 0xFF;
@@ -701,13 +754,21 @@ status_t HWComposer::prepare() {
             disp.hasFbComp = false;
             disp.hasOvComp = false;
             if (disp.list) {
+#ifdef USES_VIRTUAL_DISPLAY
+                for (size_t j=0 ; j<disp.list->numHwLayers ; j++) {
+                    hwc_layer_1_t& l = disp.list->hwLayers[j];
+#else
                 for (size_t i=0 ; i<disp.list->numHwLayers ; i++) {
                     hwc_layer_1_t& l = disp.list->hwLayers[i];
+#endif
 
                     //ALOGD("prepare: %d, type=%d, handle=%p",
                     //        i, l.compositionType, l.handle);
 
                     if (l.flags & HWC_SKIP_LAYER) {
+#ifdef USES_VIRTUAL_DISPLAY
+                        if (i < VIRTUAL_DISPLAY_ID_BASE)
+#endif
                         l.compositionType = HWC_FRAMEBUFFER;
                     }
                     if (l.compositionType == HWC_FRAMEBUFFER) {
@@ -894,6 +955,14 @@ status_t HWComposer::setOutputBuffer(int32_t id, const sp<Fence>& acquireFence,
     if (id < VIRTUAL_DISPLAY_ID_BASE)
         return INVALID_OPERATION;
 
+#ifdef USES_VIRTUAL_DISPLAY
+    if (buf == NULL) {
+        DisplayData& disp(mDisplayData[id]);
+        disp.outbufHandle = NULL;
+        disp.outbufAcquireFence = Fence::NO_FENCE;
+        return NO_ERROR;
+    }
+#endif
     DisplayData& disp(mDisplayData[id]);
     disp.outbufHandle = buf->handle;
     disp.outbufAcquireFence = acquireFence;
@@ -977,6 +1046,19 @@ public:
             }
         }
     }
+#ifdef EXYNOS
+    virtual void setOpaque(bool isOpaque) {
+        if (isOpaque) {
+            getLayer()->flags |= HWC_SET_OPAQUE;
+        } else {
+            getLayer()->flags &= ~HWC_SET_OPAQUE;
+        }
+    }
+    virtual void setDataSpace(uint32_t dataSpace) {
+            getLayer()->dataSpace = dataSpace;
+    }
+#endif
+
     virtual void setDefaultState() {
         hwc_layer_1_t* const l = getLayer();
         l->compositionType = HWC_FRAMEBUFFER;
@@ -987,6 +1069,12 @@ public:
         l->blending = HWC_BLENDING_NONE;
         l->visibleRegionScreen.numRects = 0;
         l->visibleRegionScreen.rects = NULL;
+#ifdef EXYNOS
+        l->transparentRegion.numRects = 0;
+        l->transparentRegion.rects = NULL;
+        l->coveredOpaqueRegion.numRects = 0;
+        l->coveredOpaqueRegion.rects = NULL;
+#endif
         l->acquireFenceFd = -1;
         l->releaseFenceFd = -1;
         l->planeAlpha = 0xFF;
@@ -1058,6 +1146,21 @@ public:
         SharedBuffer const* sb = reg.getSharedBuffer(&surfaceDamage.numRects);
         surfaceDamage.rects = reinterpret_cast<hwc_rect_t const *>(sb->data());
     }
+
+#ifdef EXYNOS
+    virtual void setTransparentRegion(const Region& reg) {
+        hwc_region_t& transparentRegion = getLayer()->transparentRegion;
+        SharedBuffer const* sb = reg.getSharedBuffer(&transparentRegion.numRects);
+        transparentRegion.rects = reinterpret_cast<hwc_rect_t const *>(sb->data());
+    }
+
+    virtual void setCoveredOpaqueRegion(const Region& reg) {
+        hwc_region_t& opaqueRegion = getLayer()->coveredOpaqueRegion;
+        SharedBuffer const* sb = reg.getSharedBuffer(&opaqueRegion.numRects);
+        opaqueRegion.rects = reinterpret_cast<hwc_rect_t const *>(sb->data());
+    }
+#endif
+
     virtual void setSidebandStream(const sp<NativeHandle>& stream) {
         ALOG_ASSERT(stream->handle() != NULL);
         getLayer()->compositionType = HWC_SIDEBAND;
@@ -1086,7 +1189,23 @@ public:
             visibleRegion.numRects = 0;
             visibleRegion.rects = NULL;
         }
+#ifdef EXYNOS
+        hwc_region_t& transparentRegion = getLayer()->transparentRegion;
+        SharedBuffer const* trans_sb = SharedBuffer::bufferFromData(transparentRegion.rects);
+        if (trans_sb) {
+            trans_sb->release();
+            transparentRegion.numRects = 0;
+            transparentRegion.rects = NULL;
+        }
 
+        hwc_region_t& opaqueRegion = getLayer()->coveredOpaqueRegion;
+        SharedBuffer const* corvered_sb = SharedBuffer::bufferFromData(opaqueRegion.rects);
+        if (corvered_sb) {
+            corvered_sb->release();
+            opaqueRegion.numRects = 0;
+            opaqueRegion.rects = NULL;
+        }
+#endif
         getLayer()->acquireFenceFd = -1;
 
         if (!hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_5)) {

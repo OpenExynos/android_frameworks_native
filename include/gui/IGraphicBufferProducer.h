@@ -165,9 +165,9 @@ public:
     //
     // All other negative values are an unknown error returned downstream
     // from the graphics allocator (typically errno).
+    /* Parameter that is used for EXYNOS_AFBC is added */
     virtual status_t dequeueBuffer(int* slot, sp<Fence>* fence, bool async,
-            uint32_t w, uint32_t h, PixelFormat format, uint32_t usage) = 0;
-
+            uint32_t w, uint32_t h, PixelFormat format, uint32_t usage, int* preferCompression = NULL) = 0;
     // detachBuffer attempts to remove all ownership of the buffer in the given
     // slot from the buffer queue. If this call succeeds, the slot will be
     // freed, and there will be no way to obtain the buffer from this interface.
@@ -276,19 +276,26 @@ public:
         //         set this to Fence::NO_FENCE if the buffer is ready immediately
         // sticky - the sticky transform set in Surface (only used by the LEGACY
         //          camera mode).
+        /* Parameters and variables those are used for EXYNOS_AFBC are added */
         inline QueueBufferInput(int64_t timestamp, bool isAutoTimestamp,
                 android_dataspace dataSpace, const Rect& crop, int scalingMode,
-                uint32_t transform, bool async, const sp<Fence>& fence,
-                uint32_t sticky = 0)
+                uint32_t transform, bool async, const sp<Fence>& fence, uint32_t sticky = 0,
+                uint64_t internalFormat = 0)
                 : timestamp(timestamp), isAutoTimestamp(isAutoTimestamp),
-                  dataSpace(dataSpace), crop(crop), scalingMode(scalingMode),
+                  dataSpace(dataSpace), crop(crop),
+                  dssRect(crop), dssRatio(0),
+                  scalingMode(scalingMode),
                   transform(transform), stickyTransform(sticky),
-                  async(async), fence(fence), surfaceDamage() { }
+                  async(async), fence(fence), surfaceDamage()
+                  , internalFormat(internalFormat)
+                  { }
+
+        /* Parameters and variables those are used for EXYNOS_AFBC are added */
         inline void deflate(int64_t* outTimestamp, bool* outIsAutoTimestamp,
                 android_dataspace* outDataSpace,
                 Rect* outCrop, int* outScalingMode,
                 uint32_t* outTransform, bool* outAsync, sp<Fence>* outFence,
-                uint32_t* outStickyTransform = NULL) const {
+                uint32_t* outStickyTransform = NULL, uint64_t* outInternalFormat = NULL) const {
             *outTimestamp = timestamp;
             *outIsAutoTimestamp = bool(isAutoTimestamp);
             *outDataSpace = dataSpace;
@@ -297,6 +304,47 @@ public:
             *outTransform = transform;
             *outAsync = bool(async);
             *outFence = fence;
+            if (outStickyTransform != NULL) {
+                *outStickyTransform = stickyTransform;
+            }
+            if (outInternalFormat != NULL) {
+                *outInternalFormat = internalFormat;
+            }
+        }
+
+        /* Parameters and variables those are used for EXYNOS_AFBC are added */
+        inline QueueBufferInput(int64_t timestamp, bool isAutoTimestamp,
+                android_dataspace dataSpace, const Rect& crop,
+                const Rect& dssRect, int dssRatio, int scalingMode,
+                uint32_t transform, bool async, const sp<Fence>& fence,
+                uint32_t sticky = 0, uint64_t internalFormat = 0)
+                : timestamp(timestamp), isAutoTimestamp(isAutoTimestamp),
+                  dataSpace(dataSpace), crop(crop),
+                  dssRect(dssRect), dssRatio(dssRatio),
+                  scalingMode(scalingMode), transform(transform), stickyTransform(sticky),
+                  async(async), fence(fence), surfaceDamage()
+                  , internalFormat(internalFormat)
+        { }
+        /* Parameters and variables those are used for EXYNOS_AFBC are added */
+        inline void deflate(int64_t* outTimestamp, bool* outIsAutoTimestamp,
+                android_dataspace* outDataSpace,
+                Rect* outCrop, int* outScalingMode,
+                uint32_t* outTransform, bool* outAsync, sp<Fence>* outFence,
+                Rect* outDssRect, int* outDssRatio, uint32_t* outStickyTransform = NULL,
+                uint64_t* outInternalFormat = NULL) const {
+            *outTimestamp = timestamp;
+            *outIsAutoTimestamp = bool(isAutoTimestamp);
+            *outDataSpace = dataSpace;
+            *outCrop = crop;
+            *outDssRect = dssRect;
+            *outDssRatio = dssRatio;
+            *outScalingMode = scalingMode;
+            *outTransform = transform;
+            *outAsync = bool(async);
+            *outFence = fence;
+            if (outInternalFormat != NULL) {
+                *outInternalFormat = internalFormat;
+            }
             if (outStickyTransform != NULL) {
                 *outStickyTransform = stickyTransform;
             }
@@ -316,12 +364,15 @@ public:
         int isAutoTimestamp;
         android_dataspace dataSpace;
         Rect crop;
+        Rect dssRect;
+        int dssRatio;
         int scalingMode;
         uint32_t transform;
         uint32_t stickyTransform;
         int async;
         sp<Fence> fence;
         Region surfaceDamage;
+        uint64_t internalFormat;
     };
 
     // QueueBufferOutput must be a POD structure

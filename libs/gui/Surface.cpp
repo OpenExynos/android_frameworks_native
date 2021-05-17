@@ -37,6 +37,9 @@
 
 #include <private/gui/ComposerService.h>
 
+#include "gralloc_priv.h"
+
+
 namespace android {
 
 Surface::Surface(
@@ -80,6 +83,10 @@ Surface::Surface(
     mConnectedToCpu = false;
     mProducerControlledByApp = controlledByApp;
     mSwapIntervalZero = false;
+#ifdef UESS_EXYNOS5_DSS_FEATURE
+    mDssRect.clear();
+    mDssRatio = 0;
+#endif
 }
 
 Surface::~Surface() {
@@ -227,8 +234,14 @@ int Surface::dequeueBuffer(android_native_buffer_t** buffer, int* fenceFd) {
 
     int buf = -1;
     sp<Fence> fence;
+#ifdef EXYNOS_AFBC
+    int preferCompression = 0;
+    status_t result = mGraphicBufferProducer->dequeueBuffer(&buf, &fence, swapIntervalZero,
+            reqWidth, reqHeight, reqFormat, reqUsage, &preferCompression);
+#else
     status_t result = mGraphicBufferProducer->dequeueBuffer(&buf, &fence, swapIntervalZero,
             reqWidth, reqHeight, reqFormat, reqUsage);
+#endif
 
     if (result < 0) {
         ALOGV("dequeueBuffer: IGraphicBufferProducer::dequeueBuffer(%d, %d, %d, %d, %d)"
@@ -270,6 +283,11 @@ int Surface::dequeueBuffer(android_native_buffer_t** buffer, int* fenceFd) {
     }
 
     *buffer = gbuf.get();
+#ifdef EXYNOS_AFBC
+    private_handle_t *privatehandle = private_handle_t::dynamicCast((*buffer)->handle);
+    privatehandle->prefer_compression = preferCompression;
+#endif
+
     return OK;
 }
 
@@ -335,11 +353,36 @@ int Surface::queueBuffer(android_native_buffer_t* buffer, int fenceFd) {
     Rect crop;
     mCrop.intersect(Rect(buffer->width, buffer->height), &crop);
 
+#ifdef USES_EXYNOS5_DSS_FEATURE
+    private_handle_t *h =  private_handle_t::dynamicCast(buffer->handle);
+    if (h->dssRatio) {
+        mDssRect = Rect(h->cropLeft, h->cropTop, h->cropRight, h->cropBottom);
+        mDssRatio = h->dssRatio;
+    }
+#endif
+
     sp<Fence> fence(fenceFd >= 0 ? new Fence(fenceFd) : Fence::NO_FENCE);
+    private_handle_t *privatehandle = private_handle_t::dynamicCast(buffer->handle);
+
     IGraphicBufferProducer::QueueBufferOutput output;
+#ifdef EXYNOS_AFBC
     IGraphicBufferProducer::QueueBufferInput input(timestamp, isAutoTimestamp,
-            mDataSpace, crop, mScalingMode, mTransform ^ mStickyTransform,
+            mDataSpace, crop,
+#ifdef USES_EXYNOS5_DSS_FEATURE
+            mDssRect, mDssRatio,
+#endif
+            mScalingMode, mTransform ^ mStickyTransform,
+            mSwapIntervalZero, fence, mStickyTransform, privatehandle->internal_format);
+#else
+    IGraphicBufferProducer::QueueBufferInput input(timestamp, isAutoTimestamp,
+            mDataSpace, crop,
+#ifdef USES_EXYNOS5_DSS_FEATURE
+            mDssRect, mDssRatio,
+#endif
+            mScalingMode, mTransform ^ mStickyTransform,
             mSwapIntervalZero, fence, mStickyTransform);
+
+#endif
 
     if (mConnectedToCpu || mDirtyRegion.bounds() == Rect::INVALID_RECT) {
         input.setSurfaceDamage(Region::INVALID_REGION);
@@ -425,6 +468,15 @@ int Surface::queueBuffer(android_native_buffer_t* buffer, int fenceFd) {
         mDirtyRegion = Region::INVALID_REGION;
     }
 
+#ifdef USES_EXYNOS5_DSS_FEATURE
+    mDssRect.clear();
+    h->dssRatio = 0;
+    h->cropLeft = 0;
+    h->cropTop = 0;
+    h->cropRight = 0;
+    h->cropBottom = 0;
+    mDssRatio = 0;
+#endif
     return err;
 }
 

@@ -169,6 +169,12 @@ public:
         virtual void setCrop(const FloatRect& crop) = 0;
         virtual void setVisibleRegionScreen(const Region& reg) = 0;
         virtual void setSurfaceDamage(const Region& reg) = 0;
+#ifdef EXYNOS
+        virtual void setTransparentRegion(const Region& reg) = 0;
+        virtual void setCoveredOpaqueRegion(const Region& reg) = 0;
+        virtual void setOpaque(bool isOpaque) = 0;
+        virtual void setDataSpace(uint32_t dataSpace) = 0;
+#endif
         virtual void setSidebandStream(const sp<NativeHandle>& stream) = 0;
         virtual void setBuffer(const sp<GraphicBuffer>& buffer) = 0;
         virtual void setAcquireFenceFd(int fenceFd) = 0;
@@ -278,6 +284,9 @@ public:
     const Vector<DisplayConfig>& getConfigs(int disp) const;
     size_t getCurrentConfig(int disp) const;
 
+#ifdef USES_VIRTUAL_DISPLAY
+    status_t getVirtualDisplayProperties(int32_t id, uint32_t property, uint32_t* value);
+#endif
     status_t setVirtualDisplayProperties(int32_t id, uint32_t w, uint32_t h,
             uint32_t format);
 

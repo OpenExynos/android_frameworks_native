@@ -46,6 +46,7 @@
 #include "egl_object.h"
 #include "egl_tls.h"
 #include "egldefs.h"
+#include "exynos_format.h"
 
 using namespace android;
 
@@ -112,6 +113,7 @@ extern char const * const gExtensionString  =
         "EGL_KHR_partial_update "               // strongly recommended
         "EGL_EXT_buffer_age "                   // strongly recommended with partial_update
         "EGL_KHR_create_context_no_error "
+        "EGL_ARM_version_check_r7p0 "
         ;
 
 // extensions not exposed to applications but used by the ANDROID system
@@ -463,14 +465,22 @@ EGLSurface eglCreateWindowSurface(  EGLDisplay dpy, EGLConfig config,
         // format.
 
         // by default, just pick RGBA_8888
+#ifdef USE_BGRA_8888
+        EGLint format = HAL_PIXEL_FORMAT_BGRA_8888;
+#else
         EGLint format = HAL_PIXEL_FORMAT_RGBA_8888;
+#endif
         android_dataspace dataSpace = HAL_DATASPACE_UNKNOWN;
 
         EGLint a = 0;
         cnx->egl.eglGetConfigAttrib(iDpy, config, EGL_ALPHA_SIZE, &a);
         if (a > 0) {
             // alpha-channel requested, there's really only one suitable format
+#ifdef USE_BGRA_8888
+            format = HAL_PIXEL_FORMAT_BGRA_8888;
+#else
             format = HAL_PIXEL_FORMAT_RGBA_8888;
+#endif
         } else {
             EGLint r, g, b;
             r = g = b = 0;
@@ -481,8 +491,31 @@ EGLSurface eglCreateWindowSurface(  EGLDisplay dpy, EGLConfig config,
             if (colorDepth <= 16) {
                 format = HAL_PIXEL_FORMAT_RGB_565;
             } else {
+#ifdef USE_BGRX_8888
+#undef HAL_PIXEL_FORMAT_BGRX_8888
+#define HAL_PIXEL_FORMAT_BGRX_8888 0x1FF
+                format = HAL_PIXEL_FORMAT_BGRX_8888;
+#else
                 format = HAL_PIXEL_FORMAT_RGBX_8888;
+#endif
             }
+        }
+
+        EGLint visualID = 0;
+        EGLint surface_type = 0;
+        cnx->egl.eglGetConfigAttrib(iDpy, config, EGL_SURFACE_TYPE, &surface_type);
+        cnx->egl.eglGetConfigAttrib(iDpy, config, EGL_NATIVE_VISUAL_ID, &visualID);
+        if((visualID == HAL_PIXEL_FORMAT_EXYNOS_ARGB_8888) || (visualID == HAL_PIXEL_FORMAT_RGBA_8888)
+#if defined(USE_EXTERNAL_BGRA) || defined(USES_VDS_BGRA8888)
+            || (visualID == HAL_PIXEL_FORMAT_BGRA_8888) || (visualID == HAL_PIXEL_FORMAT_RGB_565)
+#endif
+            || ((surface_type & EGL_PBUFFER_BIT) == 0 && (visualID == HAL_PIXEL_FORMAT_EXYNOS_YCbCr_420_SP_M))
+            || ((surface_type & EGL_PBUFFER_BIT) == 0 && (visualID == HAL_PIXEL_FORMAT_EXYNOS_YCbCr_420_SPN))
+            || ((surface_type & EGL_PBUFFER_BIT) == 0 && (visualID == HAL_PIXEL_FORMAT_EXYNOS_YCrCb_420_SP_M))
+            || ((surface_type & EGL_PBUFFER_BIT) == 0 && (visualID == HAL_PIXEL_FORMAT_YCrCb_420_SP))
+            || ((surface_type & EGL_PBUFFER_BIT) == 0 && (visualID == HAL_PIXEL_FORMAT_EXYNOS_YCbCr_420_SP_M_S10B))
+        ) {
+            format = visualID;
         }
 
         // now select a corresponding sRGB format if needed

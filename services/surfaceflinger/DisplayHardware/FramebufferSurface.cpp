@@ -36,6 +36,9 @@
 
 #include "FramebufferSurface.h"
 #include "HWComposer.h"
+#ifdef USE_EXTERNAL_BGRA
+#include "DisplayDevice.h"
+#endif
 
 #ifndef NUM_FRAMEBUFFER_SURFACE_BUFFERS
 #define NUM_FRAMEBUFFER_SURFACE_BUFFERS (2)
@@ -64,6 +67,11 @@ FramebufferSurface::FramebufferSurface(HWComposer& hwc, int disp,
     mConsumer->setConsumerUsageBits(GRALLOC_USAGE_HW_FB |
                                        GRALLOC_USAGE_HW_RENDER |
                                        GRALLOC_USAGE_HW_COMPOSER);
+#ifdef USE_EXTERNAL_BGRA
+    if (disp == DisplayDevice::DISPLAY_EXTERNAL)
+        mConsumer->setDefaultBufferFormat(HAL_PIXEL_FORMAT_BGRA_8888);
+    else
+#endif
     mConsumer->setDefaultBufferFormat(mHwc.getFormat(disp));
     mConsumer->setDefaultBufferSize(mHwc.getWidth(disp),  mHwc.getHeight(disp));
     mConsumer->setDefaultMaxBufferCount(NUM_FRAMEBUFFER_SURFACE_BUFFERS);

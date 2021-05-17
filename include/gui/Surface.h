@@ -248,6 +248,14 @@ private:
     // that gets queued. It is set by calling setCrop.
     Rect mCrop;
 
+    // mDssRect is the Dynamic Surface Flinger rectangle set for the next buffer that gets
+    // queued. It is set by calling setDssRect.
+    Rect mDssRect;
+
+    // mDssRatio is the Dynamic Surface Flinger ratio set for the next buffer that gets
+    // queued. It is set by calling setDssRatio.
+    int mDssRatio;
+
     // mScalingMode is the scaling mode that will be used for the next
     // buffers that get queued. It is set by calling setScalingMode.
     int mScalingMode;
@@ -317,6 +325,7 @@ private:
     // Stores the current generation number. See setGenerationNumber and
     // IGraphicBufferProducer::setGenerationNumber for more information.
     uint32_t mGenerationNumber;
+
 };
 
 }; // namespace android

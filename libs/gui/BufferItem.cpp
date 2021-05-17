@@ -35,6 +35,10 @@ BufferItem::BufferItem() :
     mAcquireCalled(false),
     mTransformToDisplayInverse(false) {
     mCrop.makeInvalid();
+#ifdef USES_EXYNOS5_DSS_FEATURE
+    mDssRect.makeInvalid();
+    mDssRatio = 0;
+#endif
 }
 
 BufferItem::~BufferItem() {}
@@ -60,6 +64,10 @@ size_t BufferItem::getPodSize() const {
     addAligned(size, mIsDroppable);
     addAligned(size, mAcquireCalled);
     addAligned(size, mTransformToDisplayInverse);
+#ifdef USES_EXYNOS5_DSS_FEATURE
+    addAligned(size, mDssRect);
+    addAligned(size, mDssRatio);
+#endif
     return size;
 }
 
@@ -145,6 +153,10 @@ status_t BufferItem::flatten(
     writeAligned(buffer, size, mIsDroppable);
     writeAligned(buffer, size, mAcquireCalled);
     writeAligned(buffer, size, mTransformToDisplayInverse);
+#ifdef USES_EXYNOS5_DSS_FEATURE
+    writeAligned(buffer, size, mDssRect);
+    writeAligned(buffer, size, mDssRatio);
+#endif
 
     return NO_ERROR;
 }

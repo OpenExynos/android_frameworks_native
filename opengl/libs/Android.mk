@@ -59,6 +59,22 @@ ifneq ($(MAX_EGL_CACHE_SIZE),)
   LOCAL_CFLAGS += -DMAX_EGL_CACHE_SIZE=$(MAX_EGL_CACHE_SIZE)
 endif
 
+ifeq ($(BOARD_USE_BGRA_8888), true)
+  LOCAL_CFLAGS += -DUSE_BGRA_8888=1
+endif
+
+ifeq ($(BOARD_USE_EXTERNAL_BGRA), true)
+  LOCAL_CFLAGS += -DUSE_EXTERNAL_BGRA
+endif
+
+ifeq ($(BOARD_USES_VDS_BGRA8888), true)
+  LOCAL_CFLAGS += -DUSES_VDS_BGRA8888
+endif
+
+ifeq ($(BOARD_USE_BGRX_8888), true)
+  LOCAL_CFLAGS += -DUSE_BGRX_8888=1
+endif
+
 LOCAL_REQUIRED_MODULES := $(egl.cfg_config_module)
 egl.cfg_config_module :=
 

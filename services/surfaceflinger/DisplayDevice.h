@@ -33,6 +33,10 @@
 
 #include "Transform.h"
 
+#ifdef USES_VDS_EXTERNAL_UI_TRANSFORM
+#include "ExynosHWCService.h"
+#endif
+
 struct ANativeWindow;
 
 namespace android {
@@ -104,6 +108,11 @@ public:
 
     EGLSurface  getEGLSurface() const;
 
+#ifdef USES_EGL_SURFACE_FOR_COMPOSITION_MIXED
+    void setEglConfigMixed(int format, EGLConfig config);
+    void setCompositionType(HWComposer& hwc);
+#endif
+
     void                    setVisibleLayersSortedByZ(const Vector< sp<Layer> >& layers);
     const Vector< sp<Layer> >& getVisibleLayersSortedByZ() const;
     bool                    getSecureLayerVisible() const;
@@ -112,9 +121,14 @@ public:
     void                    setLayerStack(uint32_t stack);
     void                    setDisplaySize(const int newWidth, const int newHeight);
     void                    setProjection(int orientation, const Rect& viewport, const Rect& frame);
-
+#ifdef USES_VDS_EXTERNAL_UI_TRANSFORM
+    void                    setProjection(int orientation);
+#endif
     int                     getOrientation() const { return mOrientation; }
     uint32_t                getOrientationTransform() const;
+#ifdef USES_VDS_EXTERNAL_UI_TRANSFORM
+    uint32_t                getTransformOrientation(uint32_t transform) const;
+#endif
     const Transform&        getTransform() const { return mGlobalTransform; }
     const Rect              getViewport() const { return mViewport; }
     const Rect              getFrame() const { return mFrame; }
@@ -125,10 +139,13 @@ public:
     int32_t                 getDisplayType() const { return mType; }
     int32_t                 getHwcDisplayId() const { return mHwcDisplayId; }
     const wp<IBinder>&      getDisplayToken() const { return mDisplayToken; }
-
+#ifdef USES_VDS_EXTERNAL_UI_TRANSFORM
+    status_t beginFrame(bool mustRecompose);
+#else
     // We pass in mustRecompose so we can keep VirtualDisplaySurface's state
     // machine happy without actually queueing a buffer if nothing has changed
     status_t beginFrame(bool mustRecompose) const;
+#endif
     status_t prepareFrame(const HWComposer& hwc) const;
 
     void swapBuffers(HWComposer& hwc) const;
@@ -186,6 +203,16 @@ private:
     EGLConfig       mConfig;
     EGLDisplay      mDisplay;
     EGLSurface      mSurface;
+#ifdef USES_EGL_SURFACE_FOR_COMPOSITION_MIXED
+    sp<IGraphicBufferProducer> mProducer;
+    sp<ANativeWindow> mNativeWindowMixed;
+    sp<DisplaySurface> mDisplaySurfaceMixed;
+    EGLConfig       mConfigMixed;
+    EGLDisplay      mDisplayMixed;
+    EGLSurface      mSurfaceMixed;
+    int             mCompositionType;
+#endif
+
     int             mDisplayWidth;
     int             mDisplayHeight;
     PixelFormat     mFormat;
@@ -226,6 +253,9 @@ private:
     int mPowerMode;
     // Current active config
     int mActiveConfig;
+#ifdef USES_VDS_EXTERNAL_UI_TRANSFORM
+    sp<IExynosHWCService> mHwcService;
+#endif
 };
 
 }; // namespace android

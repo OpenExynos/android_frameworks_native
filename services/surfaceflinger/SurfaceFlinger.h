@@ -56,6 +56,10 @@
 #include "DisplayHardware/HWComposer.h"
 #include "Effects/Daltonizer.h"
 
+#if defined(USES_VIRTUAL_DISPLAY) || defined(HDMI_ENABLED) || defined(USES_HWC_SERVICES)
+#include "ExynosHWCService.h"
+#endif
+
 namespace android {
 
 // ---------------------------------------------------------------------------
@@ -417,6 +421,7 @@ private:
             uint32_t minLayerZ, uint32_t maxLayerZ);
 
     void logFrameStats();
+    void debugShowFPS() const;
 
     void dumpStaticScreenStats(String8& result) const;
 
@@ -466,6 +471,7 @@ private:
 
     // don't use a lock for these, we don't care
     int mDebugRegion;
+    int mDebugFps;
     int mDebugDDMS;
     int mDebugDisableHWC;
     int mDebugDisableTransformHint;
@@ -506,6 +512,10 @@ private:
     nsecs_t mFrameBuckets[NUM_BUCKETS];
     nsecs_t mTotalTime;
     nsecs_t mLastSwapTime;
+#if defined(USES_VIRTUAL_DISPLAY) || defined(HDMI_ENABLED) || defined(USES_HWC_SERVICES)
+    sp<IExynosHWCService> mHwcService;
+    sp<const IExynosHWCService> getHwcService();
+#endif
 };
 
 }; // namespace android

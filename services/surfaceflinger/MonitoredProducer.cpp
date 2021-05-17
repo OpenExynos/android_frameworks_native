@@ -61,8 +61,8 @@ status_t MonitoredProducer::setBufferCount(int bufferCount) {
 }
 
 status_t MonitoredProducer::dequeueBuffer(int* slot, sp<Fence>* fence,
-        bool async, uint32_t w, uint32_t h, PixelFormat format, uint32_t usage) {
-    return mProducer->dequeueBuffer(slot, fence, async, w, h, format, usage);
+        bool async, uint32_t w, uint32_t h, PixelFormat format, uint32_t usage, int* preferCompression) {
+    return mProducer->dequeueBuffer(slot, fence, async, w, h, format, usage, preferCompression);
 }
 
 status_t MonitoredProducer::detachBuffer(int slot) {

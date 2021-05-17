@@ -78,6 +78,10 @@
 #include "RenderEngine/RenderEngine.h"
 #include <cutils/compiler.h>
 
+#if defined(USES_VIRTUAL_DISPLAY) || defined(HDMI_ENABLED) || defined(USES_HWC_SERVICES)
+#include "ExynosHWCService.h"
+#endif
+
 #define DISPLAY_COUNT       1
 
 /*
@@ -124,6 +128,10 @@ const String16 sDump("android.permission.DUMP");
 
 // ---------------------------------------------------------------------------
 
+#if defined(USES_HWC_SERVICES)
+static bool notifyPSRExit = true;
+#endif
+
 SurfaceFlinger::SurfaceFlinger()
     :   BnSurfaceComposer(),
         mTransactionFlags(0),
@@ -137,6 +145,7 @@ SurfaceFlinger::SurfaceFlinger()
         mHwWorkListDirty(false),
         mAnimCompositionPending(false),
         mDebugRegion(0),
+        mDebugFps(0),
         mDebugDDMS(0),
         mDebugDisableHWC(0),
         mDebugDisableTransformHint(0),
@@ -154,6 +163,9 @@ SurfaceFlinger::SurfaceFlinger()
         mFrameBuckets(),
         mTotalTime(0),
         mLastSwapTime(0)
+#if defined(USES_VIRTUAL_DISPLAY) || defined(HDMI_ENABLED) || defined(USES_HWC_SERVICES)
+        ,mHwcService(NULL)
+#endif
 {
     ALOGI("SurfaceFlinger is starting");
 
@@ -168,6 +180,8 @@ SurfaceFlinger::SurfaceFlinger()
 
     property_get("debug.sf.showupdates", value, "0");
     mDebugRegion = atoi(value);
+    property_get("debug.sf.showfps", value, "0");
+    mDebugFps = atoi(value);
 
     property_get("debug.sf.ddms", value, "0");
     mDebugDDMS = atoi(value);
@@ -178,8 +192,29 @@ SurfaceFlinger::SurfaceFlinger()
         }
     }
     ALOGI_IF(mDebugRegion, "showupdates enabled");
+    ALOGI_IF(mDebugFps, "showfps enabled");
     ALOGI_IF(mDebugDDMS, "DDMS debugging enabled");
 }
+#if defined(USES_VIRTUAL_DISPLAY) || defined(HDMI_ENABLED) || defined(USES_HWC_SERVICES)
+sp<const IExynosHWCService> SurfaceFlinger::getHwcService()
+{
+    if (mHwcService != NULL)
+        return mHwcService;
+    else {
+        HWComposer& hwc(getHwComposer());
+        if (hwc.initCheck() == NO_ERROR) {
+            sp<IServiceManager> sm = defaultServiceManager();
+            mHwcService =
+                interface_cast<android::IExynosHWCService>(sm->getService(String16("Exynos.HWCService")));
+            if (mHwcService == NULL) {
+                ALOGE("Getting HWCService failed");
+            }
+            return mHwcService;
+        }
+    }
+    return NULL;
+}
+#endif
 
 void SurfaceFlinger::onFirstRef()
 {
@@ -304,6 +339,11 @@ void SurfaceFlinger::bootFinished()
     // formerly we would just kill the process, but we now ask it to exit so it
     // can choose where to stop the animation.
     property_set("service.bootanim.exit", "1");
+#if defined(HDMI_ENABLED)
+    ALOGD("boot finished. Inform HWC");
+    if (getHwcService() != NULL)
+        mHwcService->setBootFinished();
+#endif
 }
 
 void SurfaceFlinger::deleteTextureAsync(uint32_t texture) {
@@ -762,6 +802,15 @@ void SurfaceFlinger::signalTransaction() {
 }
 
 void SurfaceFlinger::signalLayerUpdate() {
+#ifdef USES_HWC_SERVICES
+    if (notifyPSRExit) {
+        notifyPSRExit = false;
+        if (getHwcService() != NULL)
+            mHwcService->notifyPSRExit();
+        else
+            ALOGE("HWCService::notifyPSRExit failed");
+    }
+#endif
     mEventQueue.invalidate();
 }
 
@@ -946,6 +995,9 @@ void SurfaceFlinger::handleMessageRefresh() {
         doComposition();
         postComposition();
     }
+#ifdef USES_HWC_SERVICES
+    notifyPSRExit = true;
+#endif
 
     previousExpectedPresent = mPrimaryDispSync.computeNextRefresh(0);
 }
@@ -995,6 +1047,14 @@ void SurfaceFlinger::preComposition()
     bool needExtraInvalidate = false;
     const LayerVector& layers(mDrawingState.layersSortedByZ);
     const size_t count = layers.size();
+#ifdef USES_EXYNOS5_DSS_FEATURE
+    for (size_t i=0 ; i<count ; i++) {
+        if (layers[i]->isDssStatusChanged()) {
+            invalidateHwcGeometry();
+            break;
+        }
+    }
+#endif
     for (size_t i=0 ; i<count ; i++) {
         if (layers[i]->onPreComposition()) {
             needExtraInvalidate = true;
@@ -1072,7 +1132,9 @@ void SurfaceFlinger::rebuildLayerStacks() {
         ATRACE_CALL();
         mVisibleRegionsDirty = false;
         invalidateHwcGeometry();
-
+#ifdef USES_VIRTUAL_DISPLAY
+        uint32_t multiple_layerStack = 0;
+#endif
         const LayerVector& layers(mDrawingState.layersSortedByZ);
         for (size_t dpy=0 ; dpy<mDisplays.size() ; dpy++) {
             Region opaqueRegion;
@@ -1081,6 +1143,10 @@ void SurfaceFlinger::rebuildLayerStacks() {
             const sp<DisplayDevice>& hw(mDisplays[dpy]);
             const Transform& tr(hw->getTransform());
             const Rect bounds(hw->getBounds());
+#ifdef USES_VIRTUAL_DISPLAY
+            if (hw->getLayerStack() != 0)
+                multiple_layerStack = 1;
+#endif
             if (hw->isDisplayOn()) {
                 SurfaceFlinger::computeVisibleRegions(layers,
                         hw->getLayerStack(), dirtyRegion, opaqueRegion);
@@ -1104,6 +1170,12 @@ void SurfaceFlinger::rebuildLayerStacks() {
             hw->undefinedRegion.subtractSelf(tr.transform(opaqueRegion));
             hw->dirtyRegion.orSelf(dirtyRegion);
         }
+#ifdef USES_VIRTUAL_DISPLAY
+        if (getHwcService() != NULL)
+            mHwcService->setPresentationMode(multiple_layerStack);
+        else
+            ALOGE("HWCService::setPresentationMode failed");
+#endif
     }
 }
 
@@ -1211,6 +1283,12 @@ void SurfaceFlinger::setUpHWComposer() {
         for (size_t dpy=0 ; dpy<mDisplays.size() ; dpy++) {
             sp<const DisplayDevice> hw(mDisplays[dpy]);
             hw->prepareFrame(hwc);
+#ifdef USES_EGL_SURFACE_FOR_COMPOSITION_MIXED
+            if (hw->getDisplayType() == DisplayDevice::DISPLAY_VIRTUAL) {
+                sp<DisplayDevice> tempHw(mDisplays[dpy]);
+                tempHw->setCompositionType(hwc);
+            }
+#endif
         }
     }
 }
@@ -1240,6 +1318,10 @@ void SurfaceFlinger::doComposition() {
 void SurfaceFlinger::postFramebuffer()
 {
     ATRACE_CALL();
+
+    if (CC_UNLIKELY(mDebugFps)) {
+        debugShowFPS();
+    }
 
     const nsecs_t now = systemTime();
     mDebugInSwapBuffers = now;
@@ -1317,6 +1399,41 @@ void SurfaceFlinger::handleTransaction(uint32_t transactionFlags)
     invalidateHwcGeometry();
     // here the transaction has been committed
 }
+
+#if defined(USES_VIRTUAL_DISPLAY) || defined(USE_EXTERNAL_BGRA)
+static status_t selectConfigForAttribute(
+        EGLDisplay dpy,
+		EGLint const* attrs,
+		EGLint attribute, EGLint wanted,
+		EGLConfig* outConfig)
+{
+	EGLint numConfigs = -1, n=0;
+	eglGetConfigs(dpy, NULL, 0, &numConfigs);
+	EGLConfig* const configs = new EGLConfig[numConfigs];
+	eglChooseConfig(dpy, attrs, configs, numConfigs, &n);
+
+	if (n) {
+		if (attribute != EGL_NONE) {
+			for (int i=0 ; i<n ; i++) {
+				EGLint value = 0;
+				eglGetConfigAttrib(dpy, configs[i], attribute, &value);
+				if (wanted == value) {
+					*outConfig = configs[i];
+					delete [] configs;
+					return NO_ERROR;
+				}
+			}
+		} else {
+			// just pick the first one
+			*outConfig = configs[0];
+			delete [] configs;
+			return NO_ERROR;
+		}
+	}
+	delete [] configs;
+	return NAME_NOT_FOUND;
+}
+#endif
 
 void SurfaceFlinger::handleTransactionLocked(uint32_t transactionFlags)
 {
@@ -1411,6 +1528,14 @@ void SurfaceFlinger::handleTransactionLocked(uint32_t transactionFlags)
                             disp->setProjection(state.orientation,
                                     state.viewport, state.frame);
                         }
+#ifdef USES_VIRTUAL_DISPLAY
+                            if (draw[i].isMainDisplay()) {
+                                if (getHwcService() != NULL)
+                                    mHwcService->setDispOrientation(state.orientation);
+                                else
+                                    ALOGE("HWCService::setDispOrientation failed");
+                            }
+#endif
                         if (state.width != draw[i].width || state.height != draw[i].height) {
                             disp->setDisplaySize(state.width, state.height);
                         }
@@ -1451,7 +1576,14 @@ void SurfaceFlinger::handleTransactionLocked(uint32_t transactionFlags)
                             if (MAX_VIRTUAL_DISPLAY_DIMENSION == 0 ||
                                     (width <= MAX_VIRTUAL_DISPLAY_DIMENSION &&
                                      height <= MAX_VIRTUAL_DISPLAY_DIMENSION)) {
-                                hwcDisplayId = allocateHwcDisplayId(state.type);
+#ifdef USES_VIRTUAL_DISPLAY
+                                if (getHwcService() != NULL) {
+                                    int WFDMode = 0;
+                                    WFDMode = mHwcService->getWFDMode();
+                                    if (WFDMode == 1)
+                                        hwcDisplayId = allocateHwcDisplayId(state.type);
+                                }
+#endif
                             }
 
                             sp<VirtualDisplaySurface> vds = new VirtualDisplaySurface(
@@ -1476,11 +1608,141 @@ void SurfaceFlinger::handleTransactionLocked(uint32_t transactionFlags)
 
                     const wp<IBinder>& display(curr.keyAt(i));
                     if (dispSurface != NULL) {
+                        EGLConfig eglConfig = NULL;
+                        if (state.isVirtualDisplay()) {
+#ifdef USES_VIRTUAL_DISPLAY
+                            int format;
+                            producer->query(NATIVE_WINDOW_FORMAT, &format);
+#ifdef USES_EGL_SURFACE_FOR_COMPOSITION_MIXED
+                            if (format == HAL_PIXEL_FORMAT_EXYNOS_YCbCr_420_SP_M) {
+                                /* For NV12 format  */
+                                status_t err;
+                                EGLDisplay wfdEglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+                                const EGLint lAttributes[] = {
+                                    EGL_BLUE_SIZE, 8, EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8,
+                                    EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+                                    EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+                                    EGL_NONE
+                                };
+                                eglInitialize(wfdEglDisplay, NULL, NULL);
+                                err = selectConfigForAttribute(wfdEglDisplay, lAttributes, EGL_NATIVE_VISUAL_ID,
+                                        format, &eglConfig);
+                            } else
+#endif
+                            if (format == HAL_PIXEL_FORMAT_EXYNOS_ARGB_8888 || format == HAL_PIXEL_FORMAT_RGBA_8888) {
+                                /* make new EGLConfig which uses pixel format from HWC */
+                                status_t err;
+                                EGLDisplay wfdEglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+                                const EGLint lAttributes[] = {
+#if defined(USE_RENDER_ENGINE_CONFIG)
+                                    EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+                                    EGL_SURFACE_TYPE, EGL_WINDOW_BIT|EGL_PBUFFER_BIT,
+                                    EGL_RECORDABLE_ANDROID, EGL_TRUE,
+                                    EGL_NATIVE_VISUAL_ID, format,
+#else
+                                    EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+#endif
+                                    EGL_BLUE_SIZE, 8, EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8,
+                                    EGL_NONE
+                                };
+                                eglInitialize(wfdEglDisplay, NULL, NULL);
+#if defined(USE_RENDER_ENGINE_CONFIG)
+                                err = selectConfigForAttribute(wfdEglDisplay, lAttributes, EGL_NONE,
+                                        EGL_NONE, &eglConfig);
+#else
+                                err = selectConfigForAttribute(wfdEglDisplay, lAttributes, EGL_NATIVE_VISUAL_ID,
+                                        format, &eglConfig);
+#endif
+                            } else if (format == HAL_PIXEL_FORMAT_RGB_565) {
+                                /* For RGB565 format */
+                                status_t err;
+                                EGLDisplay wfdEglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+                                const EGLint lAttributes[] = {
+#if defined(USE_RENDER_ENGINE_CONFIG)
+                                    EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+                                    EGL_SURFACE_TYPE, EGL_WINDOW_BIT|EGL_PBUFFER_BIT,
+                                    EGL_RECORDABLE_ANDROID, EGL_TRUE,
+                                    EGL_NATIVE_VISUAL_ID, format,
+#else
+                                    EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+#endif
+                                    EGL_BLUE_SIZE, 5, EGL_RED_SIZE, 5, EGL_GREEN_SIZE, 6,
+                                    EGL_NONE
+                                };
+                                eglInitialize(wfdEglDisplay, NULL, NULL);
+#if defined(USE_RENDER_ENGINE_CONFIG)
+                                err = selectConfigForAttribute(wfdEglDisplay, lAttributes, EGL_NONE,
+                                        EGL_NONE, &eglConfig);
+#else
+                                err = selectConfigForAttribute(wfdEglDisplay, lAttributes, EGL_NATIVE_VISUAL_ID,
+                                        format, &eglConfig);
+#endif
+#ifdef USES_VDS_BGRA8888
+                            } else if (format == HAL_PIXEL_FORMAT_BGRA_8888) {
+                                /* For BGRA8888 format */
+                                status_t err;
+                                EGLDisplay wfdEglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+                                const EGLint lAttributes[] = {
+                                    EGL_BLUE_SIZE, 8, EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_ALPHA_SIZE, 8,
+                                    EGL_NONE
+                                };
+                                eglInitialize(wfdEglDisplay, NULL, NULL);
+                                err = selectConfigForAttribute(wfdEglDisplay, lAttributes, EGL_NATIVE_VISUAL_ID,
+                                        format, &eglConfig);
+#endif
+                            } else {
+                                eglConfig = mRenderEngine->getEGLConfig();
+                            }
+#endif
+                        } else {
+#ifdef USE_EXTERNAL_BGRA
+                            if(state.type == DisplayDevice::DISPLAY_EXTERNAL) {
+                                status_t err;
+                                const EGLint lAttributes[] = {
+                                    EGL_BLUE_SIZE, 8, EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_ALPHA_SIZE, 8,
+                                    EGL_NONE
+                                };
+                                err = selectConfigForAttribute(mEGLDisplay, lAttributes, EGL_NATIVE_VISUAL_ID, 5, &eglConfig);
+                            }
+                            else {
+#endif
+                                eglConfig = mRenderEngine->getEGLConfig();
+#ifdef USE_EXTERNAL_BGRA
+                            }
+#endif
+                        }
+#if defined(USES_VIRTUAL_DISPLAY) || defined(USE_EXTERNAL_BGRA)
+                        sp<DisplayDevice> hw = new DisplayDevice(this,
+                                state.type, hwcDisplayId,
+                                mHwc->getFormat(hwcDisplayId),  state.isSecure,
+                                display, dispSurface, producer,
+                                eglConfig);
+#ifdef USES_EGL_SURFACE_FOR_COMPOSITION_MIXED
+                        /* eglConfig RGB */
+                        EGLConfig eglConfigMixed;
+                        status_t err;
+                        int format = HAL_PIXEL_FORMAT_RGBA_8888;
+                        ALOGI("handleTransactionLocked(), format %d", format);
+                        EGLDisplay tempEglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+                        const EGLint lAttributes[] = {
+                            EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+                            EGL_BLUE_SIZE, 8, EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8,
+                            EGL_NONE
+                        };
+                        eglInitialize(tempEglDisplay, NULL, NULL);
+                        err = selectConfigForAttribute(tempEglDisplay, lAttributes, EGL_NATIVE_VISUAL_ID,
+                            format, &eglConfigMixed);
+                        ALOGI("selectConfigForAttribute(format %d, eglConfigMixed %p) ret %d",
+                            format, eglConfigMixed, err);
+                        hw->setEglConfigMixed(format, eglConfigMixed);
+#endif
+#else
                         sp<DisplayDevice> hw = new DisplayDevice(this,
                                 state.type, hwcDisplayId,
                                 mHwc->getFormat(hwcDisplayId), state.isSecure,
                                 display, dispSurface, producer,
                                 mRenderEngine->getEGLConfig());
+#endif
                         hw->setLayerStack(state.layerStack);
                         hw->setProjection(state.orientation,
                                 state.viewport, state.frame);
@@ -1491,6 +1753,14 @@ void SurfaceFlinger::handleTransactionLocked(uint32_t transactionFlags)
                                 mHwc->setVirtualDisplayProperties(hwcDisplayId,
                                         hw->getWidth(), hw->getHeight(),
                                         hw->getFormat());
+#ifdef USES_VIRTUAL_DISPLAY
+                                if (getHwcService() != NULL) {
+                                    mHwcService->setWFDOutputResolution(hw->getWidth(), hw->getHeight(), hw->getWidth(), hw->getHeight());
+                                    ALOGI("Virtual display is added. width(%d), height(%d)", hw->getWidth(), hw->getHeight());
+                                }
+                                else
+                                    ALOGE("HWCService::setWFDOutputResolution failed");
+#endif
                             }
                         } else {
                             mEventThread->onHotplugReceived(state.type, true);
@@ -1769,6 +2039,13 @@ void SurfaceFlinger::computeVisibleRegions(
         // accumulate to the screen dirty region
         outDirtyRegion.orSelf(dirty);
 
+#ifdef EXYNOS
+        Region aboveOpaqueRegion;
+        aboveOpaqueRegion.clear();
+        aboveOpaqueRegion.orSelf(aboveOpaqueLayers);
+        layer->setCoveredOpaqueRegion(aboveOpaqueRegion.andSelf(visibleRegion));
+#endif
+
         // Update aboveOpaqueLayers for next (lower) layer
         aboveOpaqueLayers.orSelf(opaqueRegion);
 
@@ -2039,6 +2316,25 @@ void SurfaceFlinger::drawWormhole(const sp<const DisplayDevice>& hw, const Regio
     const int32_t height = hw->getHeight();
     RenderEngine& engine(getRenderEngine());
     engine.fillRegionWithColor(region, height, 0, 0, 0, 0);
+}
+
+void SurfaceFlinger::debugShowFPS() const
+{
+    static int mFrameCount;
+    static int mLastFrameCount = 0;
+    static nsecs_t mLastFpsTime = 0;
+    static float mFps = 0;
+
+    mFrameCount++;
+    nsecs_t now = systemTime();
+    nsecs_t diff = now - mLastFpsTime;
+
+    if (diff >= ms2ns(250)) {
+        mFps = ((mFrameCount - mLastFrameCount) * float(s2ns(1))) / diff;
+        mLastFpsTime = now;
+        mLastFrameCount = mFrameCount;
+        ALOGD("SurfaceFlinger: FPS = %.02f", mFps);
+    }
 }
 
 status_t SurfaceFlinger::addClientLayer(const sp<Client>& client,
@@ -2920,7 +3216,10 @@ status_t SurfaceFlinger::onTransact(
         int n;
         switch (code) {
             case 1000: // SHOW_CPU, NOT SUPPORTED ANYMORE
-            case 1001: // SHOW_FPS, NOT SUPPORTED ANYMORE
+                return NO_ERROR;
+            case 1001: // SHOW_FPS
+                n = data.readInt32();
+                mDebugFps = n;
                 return NO_ERROR;
             case 1002:  // SHOW_UPDATES
                 n = data.readInt32();

@@ -77,6 +77,9 @@ public:
     Region coveredRegion;
     Region visibleNonTransparentRegion;
     Region surfaceDamageRegion;
+#ifdef EXYNOS
+    Region coveredOpaqueRegion;
+#endif
 
     // Layer serial number.  This gives layers an explicit ordering, so we
     // have a stable sort order when their layer stack and Z-order are
@@ -264,6 +267,10 @@ public:
     void setVisibleNonTransparentRegion(const Region&
             visibleNonTransparentRegion);
 
+#ifdef EXYNOS
+    void setCoveredOpaqueRegion(const Region& opaqueRegion);
+#endif
+
     /*
      * latchBuffer - called each time the screen is redrawn and returns whether
      * the visible regions need to be recomputed (this is a fairly heavy
@@ -316,6 +323,8 @@ public:
     void clearFrameStats();
     void logFrameStats();
     void getFrameStats(FrameStats* outStats) const;
+
+    bool isDssStatusChanged();
 
 protected:
     // constant
@@ -387,6 +396,8 @@ private:
     sp<GraphicBuffer> mActiveBuffer;
     sp<NativeHandle> mSidebandStream;
     Rect mCurrentCrop;
+    int mCurrentDssRatio;
+    Rect mDssRect;
     uint32_t mCurrentTransform;
     uint32_t mCurrentScalingMode;
     bool mCurrentOpacity;

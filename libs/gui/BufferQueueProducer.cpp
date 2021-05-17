@@ -32,6 +32,8 @@
 #include <utils/Log.h>
 #include <utils/Trace.h>
 
+#include "gralloc_priv.h"
+
 namespace android {
 
 BufferQueueProducer::BufferQueueProducer(const sp<BufferQueueCore>& core) :
@@ -251,10 +253,10 @@ status_t BufferQueueProducer::waitForFreeSlotThenRelock(const char* caller,
 
     return NO_ERROR;
 }
-
+/* Parameters and variables those are used for EXYNOS_AFBC are added */
 status_t BufferQueueProducer::dequeueBuffer(int *outSlot,
         sp<android::Fence> *outFence, bool async,
-        uint32_t width, uint32_t height, PixelFormat format, uint32_t usage) {
+        uint32_t width, uint32_t height, PixelFormat format, uint32_t usage, int *preferCompression) {
     ATRACE_CALL();
     { // Autolock scope
         Mutex::Autolock lock(mCore->mMutex);
@@ -406,6 +408,15 @@ status_t BufferQueueProducer::dequeueBuffer(int *outSlot,
         }
         eglDestroySyncKHR(eglDisplay, eglFence);
     }
+#ifdef EXYNOS_AFBC
+    if (returnFlags >= 0 && preferCompression) {
+        private_handle_t *privatehandle = private_handle_t::dynamicCast(mSlots[*outSlot].mGraphicBuffer->handle);
+        *preferCompression = privatehandle->prefer_compression;
+    }
+#else
+    if (preferCompression)
+        *preferCompression = 0;
+#endif
 
     BQ_LOGV("dequeueBuffer: returning slot=%d/%" PRIu64 " buf=%p flags=%#x",
             *outSlot,
@@ -551,10 +562,22 @@ status_t BufferQueueProducer::queueBuffer(int slot,
     int scalingMode;
     uint32_t transform;
     uint32_t stickyTransform;
+    uint64_t internalFormat;
     bool async;
     sp<Fence> fence;
+
+#ifdef USES_EXYNOS5_DSS_FEATURE
+    Rect dssRect;
+    int dssRatio = 0;
+#endif
+    /* Modified the code for using EXYNOS_AFBC*/
     input.deflate(&timestamp, &isAutoTimestamp, &dataSpace, &crop, &scalingMode,
-            &transform, &async, &fence, &stickyTransform);
+            &transform, &async, &fence,
+#ifdef USES_EXYNOS5_DSS_FEAUTRE
+            &dssRect, &dssRatio,
+#endif
+            &stickyTransform, &internalFormat);
+
     Region surfaceDamage = input.getSurfaceDamage();
 
     if (fence == NULL) {
@@ -626,7 +649,10 @@ status_t BufferQueueProducer::queueBuffer(int slot,
                     "buffer in slot %d", slot);
             return BAD_VALUE;
         }
-
+#ifdef EXYNOS_AFBC
+        private_handle_t *privatehandle = private_handle_t::dynamicCast(graphicBuffer->handle);
+        privatehandle->internal_format = internalFormat;
+#endif
         // Override UNKNOWN dataspace with consumer default
         if (dataSpace == HAL_DATASPACE_UNKNOWN) {
             dataSpace = mCore->mDefaultBufferDataSpace;
@@ -653,7 +679,10 @@ status_t BufferQueueProducer::queueBuffer(int slot,
         item.mFence = fence;
         item.mIsDroppable = mCore->mDequeueBufferCannotBlock || async;
         item.mSurfaceDamage = surfaceDamage;
-
+#ifdef USES_EXYNOS5_DSS_FEATURE
+        item.mDssRect = dssRect;
+        item.mDssRatio = dssRatio;
+#endif
         mStickyTransform = stickyTransform;
 
         if (mCore->mQueue.empty()) {

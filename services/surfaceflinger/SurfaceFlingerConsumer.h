@@ -74,6 +74,10 @@ public:
 
     nsecs_t computeExpectedPresent(const DispSync& dispSync);
 
+#ifdef EXYNOS
+    uint32_t getSurfaceDataSpace() const;
+#endif
+
 private:
     virtual void onSidebandStreamChanged();
 
@@ -86,6 +90,10 @@ private:
 
     // The portion of this surface that has changed since the previous frame
     Region mSurfaceDamage;
+
+#ifdef EXYNOS
+    uint32_t mDataSpace;
+#endif
 };
 
 // ----------------------------------------------------------------------------

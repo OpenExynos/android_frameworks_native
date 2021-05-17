@@ -55,6 +55,18 @@ ifeq ($(TARGET_FORCE_HWC_FOR_VIRTUAL_DISPLAYS),true)
     LOCAL_CFLAGS += -DFORCE_HWC_COPY_FOR_VIRTUAL_DISPLAYS
 endif
 
+ifeq ($(BOARD_USES_VIRTUAL_DISPLAY_DECON_EXT_WB), true)
+	LOCAL_CFLAGS += -DUSES_VIRTUAL_DISPLAY_DECON_EXT_WB
+endif
+
+ifeq ($(BOARD_USES_EGL_SURFACE_FOR_COMPOSITION_MIXED), true)
+    LOCAL_CFLAGS += -DUSES_EGL_SURFACE_FOR_COMPOSITION_MIXED
+endif
+
+ifeq ($(BOARD_USES_VDS_OTHERFORMAT), true)
+    LOCAL_CFLAGS += -DUSES_VDS_OTHERFORMAT
+endif
+
 ifneq ($(NUM_FRAMEBUFFER_SURFACE_BUFFERS),)
     LOCAL_CFLAGS += -DNUM_FRAMEBUFFER_SURFACE_BUFFERS=$(NUM_FRAMEBUFFER_SURFACE_BUFFERS)
 endif
@@ -92,6 +104,10 @@ endif
 LOCAL_CFLAGS += -fvisibility=hidden -Werror=format
 LOCAL_CFLAGS += -std=c++11
 
+ifeq ($(BOARD_USE_EXTERNAL_BGRA), true)
+    LOCAL_CFLAGS += -DUSE_EXTERNAL_BGRA
+endif
+
 LOCAL_SHARED_LIBRARIES := \
     libcutils \
     liblog \
@@ -105,6 +121,56 @@ LOCAL_SHARED_LIBRARIES := \
     libui \
     libgui \
     libpowermanager
+
+ifeq ($(BOARD_USES_HWC_SERVICES), true)
+	LOCAL_CFLAGS += -DUSES_HWC_SERVICES
+	LOCAL_SHARED_LIBRARIES += libExynosHWCService
+	LOCAL_C_INCLUDES += \
+		$(TOP)/hardware/samsung_slsi/exynos/libhwcService \
+		$(TOP)/hardware/samsung_slsi/$(TARGET_BOARD_PLATFORM)/include \
+		$(TOP)/hardware/samsung_slsi/$(TARGET_SOC)/include \
+		$(TOP)/hardware/samsung_slsi/exynos/include \
+		$(TOP)/hardware/samsung_slsi/$(TARGET_SOC)/libhwcmodule \
+		$(TOP)/hardware/samsung_slsi/exynos/libhwc \
+		$(TOP)/hardware/samsung_slsi/exynos/libexynosutils \
+		$(TOP)/system/core/libsync/include
+
+ifeq ($(BOARD_USES_VIRTUAL_DISPLAY),true)
+	LOCAL_CFLAGS += -DUSES_VIRTUAL_DISPLAY
+endif
+ifeq ($(BOARD_SUPPORT_DQ_Q_SEQUENCE), true)
+	LOCAL_CFLAGS += -DSUPPORT_DQ_Q_SEQUENCE
+endif
+ifeq ($(BOARD_SUPPORT_Q_DQ_SEQUENCE), true)
+	LOCAL_CFLAGS += -DSUPPORT_Q_DQ_SEQUENCE
+endif
+ifeq ($(BOARD_USES_VDS_BGRA8888), true)
+	LOCAL_CFLAGS += -DUSES_VDS_BGRA8888
+endif
+ifeq ($(BOARD_USES_DISABLE_COMPOSITIONTYPE_GLES), true)
+	LOCAL_CFLAGS += -DUSES_DISABLE_COMPOSITIONTYPE_GLES
+endif
+ifneq ($(BOARD_HDMI_INCAPABLE), true)
+	LOCAL_CFLAGS += -DHDMI_ENABLED
+endif
+endif
+
+ifeq ($(BOARD_USES_FIMC), true)
+	LOCAL_CFLAGS += -DUSES_FIMC
+endif
+LOCAL_CFLAGS += -DEXYNOS
+
+ifeq ($(BOARD_USE_RENDER_ENGINE_CONFIG), true)
+	LOCAL_CFLAGS += -DUSE_RENDER_ENGINE_CONFIG
+endif
+
+ifeq ($(BOARD_USES_EXYNOS5_DSS_FEATURE), true)
+        LOCAL_CFLAGS += -DUSES_EXYNOS5_DSS_FEATURE
+endif
+
+ifeq ($(BOARD_USES_EXYNOS5_AFBC_FEATURE), true)
+	LOCAL_CFLAGS += -DEXYNOS_AFBC
+endif
 
 LOCAL_MODULE := libsurfaceflinger
 
@@ -134,6 +200,10 @@ LOCAL_SHARED_LIBRARIES := \
     libdl
 
 LOCAL_WHOLE_STATIC_LIBRARIES := libsigchain
+
+ifeq ($(BOARD_USES_EXYNOS5_DSS_FEATURE), true)
+        LOCAL_CFLAGS += -DUSES_EXYNOS5_DSS_FEATURE
+endif
 
 LOCAL_MODULE := surfaceflinger
 

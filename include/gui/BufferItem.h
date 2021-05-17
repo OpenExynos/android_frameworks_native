@@ -60,6 +60,12 @@ class BufferItem : public Flattenable<BufferItem> {
     // mCrop is the current crop rectangle for this buffer slot.
     Rect mCrop;
 
+    // mDssRect is the Dynamic Surface Scaling rectangle for this buffer slot.
+    Rect mDssRect;
+
+    // mDssRatio is the Dynamic Surface Scaling ratio for this buffer slot.
+    int mDssRatio;
+
     // mTransform is the current transform flags for this buffer slot.
     // refer to NATIVE_WINDOW_TRANSFORM_* in <window.h>
     uint32_t mTransform;
@@ -123,6 +129,7 @@ class BufferItem : public Flattenable<BufferItem> {
     // Describes the portion of the surface that has been modified since the
     // previous frame
     Region mSurfaceDamage;
+
 };
 
 } // namespace android

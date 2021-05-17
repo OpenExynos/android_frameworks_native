@@ -120,6 +120,9 @@ Layer::Layer(SurfaceFlinger* flinger, const sp<Client>& client,
     nsecs_t displayPeriod =
             flinger->getHwComposer().getRefreshPeriod(HWC_DISPLAY_PRIMARY);
     mFrameTracker.setDisplayRefreshPeriod(displayPeriod);
+#ifdef USES_EXYNOS5_DSS_FEATURE
+    mCurrentDssRatio = 0;
+#endif
 }
 
 void Layer::onFirstRef() {
@@ -349,6 +352,11 @@ FloatRect Layer::computeCrop(const sp<const DisplayDevice>& hw) const {
     // the content crop is the area of the content that gets scaled to the
     // layer's size.
     FloatRect crop(getContentCrop());
+#ifdef USES_EXYNOS5_DSS_FEATURE
+    if (mCurrentDssRatio)
+        crop = mDssRect;
+#endif
+
 
     // the active.crop is the area of the window that gets cropped, but not
     // scaled in any ways.
@@ -552,6 +560,20 @@ void Layer::setPerFrameData(const sp<const DisplayDevice>& hw,
     Region visible = tr.transform(visibleRegion.intersect(hw->getViewport()));
     layer.setVisibleRegionScreen(visible);
     layer.setSurfaceDamage(surfaceDamageRegion);
+#ifdef EXYNOS
+    const Layer::State& s(getDrawingState());
+    Region transparent = tr.transform(s.activeTransparentRegion.intersect(hw->getViewport()));
+    layer.setTransparentRegion(transparent);
+
+    Region opaque = tr.transform(coveredOpaqueRegion.intersect(hw->getViewport()));
+    layer.setCoveredOpaqueRegion(opaque);
+
+    if (mCurrentState.flags & layer_state_t::eLayerOpaque)
+        layer.setOpaque(true);
+    else
+        layer.setOpaque(false);
+    layer.setDataSpace(mSurfaceFlingerConsumer->getSurfaceDataSpace());
+#endif
 
     if (mSidebandStream.get()) {
         layer.setSidebandStream(mSidebandStream);
@@ -760,10 +782,22 @@ void Layer::drawWithOpenGL(const sp<const DisplayDevice>& hw,
     // TODO: we probably want to generate the texture coords with the mesh
     // here we assume that we only have 4 vertices
     Mesh::VertexArray<vec2> texCoords(mMesh.getTexCoordArray<vec2>());
-    texCoords[0] = vec2(left, 1.0f - top);
-    texCoords[1] = vec2(left, 1.0f - bottom);
-    texCoords[2] = vec2(right, 1.0f - bottom);
-    texCoords[3] = vec2(right, 1.0f - top);
+#ifdef USES_EXYNOS5_DSS_FEATURE
+    if (mCurrentDssRatio)
+    {
+        texCoords[0] = ((float)mCurrentDssRatio/100)*vec2(left, 1.0f - top);
+        texCoords[1] = ((float)mCurrentDssRatio/100)*vec2(left, 1.0f - bottom);
+        texCoords[2] = ((float)mCurrentDssRatio/100)*vec2(right, 1.0f - bottom);
+        texCoords[3] = ((float)mCurrentDssRatio/100)*vec2(right, 1.0f - top);
+    }
+    else
+#endif
+    {
+        texCoords[0] = vec2(left, 1.0f - top);
+        texCoords[1] = vec2(left, 1.0f - bottom);
+        texCoords[2] = vec2(right, 1.0f - bottom);
+        texCoords[3] = vec2(right, 1.0f - top);
+    }
 
     RenderEngine& engine(mFlinger->getRenderEngine());
     engine.setupLayerBlending(mPremultipliedAlpha, isOpaque(s), s.alpha);
@@ -789,7 +823,26 @@ void Layer::setFiltering(bool filtering) {
 bool Layer::getFiltering() const {
     return mFiltering;
 }
+#ifdef USES_EXYNOS5_DSS_FEATURE
+bool Layer::isDssStatusChanged() {
+    bool ret = false;
+    int dssRatio = false;
+    const sp<GraphicBuffer>& activeBuffer(mActiveBuffer);
 
+    if (activeBuffer != 0) {
+        dssRatio = mSurfaceFlingerConsumer->getCurrentDssRatio();
+        if (dssRatio) {
+            mDssRect = mSurfaceFlingerConsumer->getCurrentDssRect();
+        }
+    }
+
+    if (dssRatio != mCurrentDssRatio)
+        ret = true;
+
+    mCurrentDssRatio = dssRatio;
+    return ret;
+}
+#endif
 // As documented in libhardware header, formats in the range
 // 0x100 - 0x1FF are specific to the HAL implementation, and
 // are known to have no alpha channel
@@ -891,6 +944,13 @@ void Layer::setVisibleNonTransparentRegion(const Region&
     // always called from main thread
     this->visibleNonTransparentRegion = setVisibleNonTransparentRegion;
 }
+
+#ifdef EXYNOS
+void Layer::setCoveredOpaqueRegion(const Region& opaqueRegion) {
+    // always called from main thread
+    this->coveredOpaqueRegion = opaqueRegion;
+}
+#endif
 
 // ----------------------------------------------------------------------------
 // transaction
@@ -1472,6 +1532,9 @@ void Layer::dump(String8& result, Colorizer& colorizer) const
     s.activeTransparentRegion.dump(result, "transparentRegion");
     visibleRegion.dump(result, "visibleRegion");
     surfaceDamageRegion.dump(result, "surfaceDamageRegion");
+#ifdef EXYNOS
+    coveredOpaqueRegion.dump(result, "coveredOpaqueRegion");
+#endif
     sp<Client> client(mClientRef.promote());
 
     result.appendFormat(            "      "

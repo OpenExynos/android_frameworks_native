@@ -94,10 +94,10 @@ public:
         result = reply.readInt32();
         return result;
     }
-
+    /* Parameters and variables those are used for EXYNOS_AFBC are added */
     virtual status_t dequeueBuffer(int *buf, sp<Fence>* fence, bool async,
             uint32_t width, uint32_t height, PixelFormat format,
-            uint32_t usage) {
+            uint32_t usage, int *preferCompression) {
         Parcel data, reply;
         data.writeInterfaceToken(IGraphicBufferProducer::getInterfaceDescriptor());
         data.writeInt32(static_cast<int32_t>(async));
@@ -116,6 +116,12 @@ public:
             reply.read(**fence);
         }
         result = reply.readInt32();
+        if (preferCompression) {
+            *preferCompression = reply.readInt32();
+        } else {
+            int temp = reply.readInt32();
+        }
+
         return result;
     }
 
@@ -341,6 +347,7 @@ status_t BnGraphicBufferProducer::onTransact(
             reply->writeInt32(result);
             return NO_ERROR;
         }
+        /* Parameters and variables those are used for EXYNOS_AFBC are added */
         case DEQUEUE_BUFFER: {
             CHECK_INTERFACE(IGraphicBufferProducer, data, reply);
             bool async = static_cast<bool>(data.readInt32());
@@ -350,14 +357,16 @@ status_t BnGraphicBufferProducer::onTransact(
             uint32_t usage = data.readUint32();
             int buf = 0;
             sp<Fence> fence;
+            int preferCompression = 0;
             int result = dequeueBuffer(&buf, &fence, async, width, height,
-                    format, usage);
+                    format, usage, &preferCompression);
             reply->writeInt32(buf);
             reply->writeInt32(fence != NULL);
             if (fence != NULL) {
                 reply->write(*fence);
             }
             reply->writeInt32(result);
+            reply->writeInt32(preferCompression);
             return NO_ERROR;
         }
         case DETACH_BUFFER: {
@@ -503,6 +512,11 @@ size_t IGraphicBufferProducer::QueueBufferInput::getFlattenedSize() const {
          + sizeof(transform)
          + sizeof(stickyTransform)
          + sizeof(async)
+#ifdef USES_EXYNOS5_DSS_FEATURE
+         + sizeof(dssRect)
+         + sizeof(dssRatio)
+#endif
+         + sizeof(internalFormat)
          + fence->getFlattenedSize()
          + surfaceDamage.getFlattenedSize();
 }
@@ -525,6 +539,11 @@ status_t IGraphicBufferProducer::QueueBufferInput::flatten(
     FlattenableUtils::write(buffer, size, transform);
     FlattenableUtils::write(buffer, size, stickyTransform);
     FlattenableUtils::write(buffer, size, async);
+#ifdef USES_EXYNOS5_DSS_FEATURE
+    FlattenableUtils::write(buffer, size, dssRect);
+    FlattenableUtils::write(buffer, size, dssRatio);
+#endif
+    FlattenableUtils::write(buffer, size, internalFormat);
     status_t result = fence->flatten(buffer, size, fds, count);
     if (result != NO_ERROR) {
         return result;
@@ -543,6 +562,12 @@ status_t IGraphicBufferProducer::QueueBufferInput::unflatten(
             + sizeof(scalingMode)
             + sizeof(transform)
             + sizeof(stickyTransform)
+#ifdef USES_EXYNOS5_DSS_FEATURE
+            + sizeof(async)
+            + sizeof(dssRect)
+            + sizeof(dssRatio);
+#endif
+            + sizeof(internalFormat)
             + sizeof(async);
 
     if (size < minNeeded) {
@@ -557,7 +582,11 @@ status_t IGraphicBufferProducer::QueueBufferInput::unflatten(
     FlattenableUtils::read(buffer, size, transform);
     FlattenableUtils::read(buffer, size, stickyTransform);
     FlattenableUtils::read(buffer, size, async);
-
+#ifdef USES_EXYNOS5_DSS_FEATURE
+    FlattenableUtils::read(buffer, size, dssRect);
+    FlattenableUtils::read(buffer, size, dssRatio);
+#endif
+    FlattenableUtils::read(buffer, size, internalFormat);
     fence = new Fence();
     status_t result = fence->unflatten(buffer, size, fds, count);
     if (result != NO_ERROR) {

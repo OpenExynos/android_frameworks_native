@@ -20,6 +20,10 @@
 #include <gui/ConsumerBase.h>
 #include <gui/IGraphicBufferProducer.h>
 
+#if defined (SUPPORT_DQ_Q_SEQUENCE) || defined(SUPPORT_Q_DQ_SEQUENCE)
+#include "ExynosHWCService.h"
+#endif
+
 #include "DisplaySurface.h"
 
 // ---------------------------------------------------------------------------
@@ -99,8 +103,10 @@ private:
     //
     virtual status_t requestBuffer(int pslot, sp<GraphicBuffer>* outBuf);
     virtual status_t setBufferCount(int bufferCount);
+    /* Parameter that is used for EXYNOS_AFBC is added */
     virtual status_t dequeueBuffer(int* pslot, sp<Fence>* fence, bool async,
-            uint32_t w, uint32_t h, PixelFormat format, uint32_t usage);
+            uint32_t w, uint32_t h, PixelFormat format, uint32_t usage, int* preferCompression = NULL);
+
     virtual status_t detachBuffer(int slot);
     virtual status_t detachNextBuffer(sp<GraphicBuffer>* outBuffer,
             sp<Fence>* outFence);
@@ -196,6 +202,19 @@ private:
     // and output.
     int mFbProducerSlot;
     int mOutputProducerSlot;
+#if defined (SUPPORT_DQ_Q_SEQUENCE) || defined(SUPPORT_Q_DQ_SEQUENCE)
+    uint32_t mSinkUsage, mSinkFormat;
+    int mBQError;
+    sp<IExynosHWCService> mHwcService;
+#endif
+#ifdef SUPPORT_Q_DQ_SEQUENCE
+    sp<Fence> mNextOutputFence;
+#endif
+#ifdef SUPPORT_Q_DQ_SEQUENCE
+    int mNextOutputProducerSlot;
+#endif
+    /* Variable that is used for EXYNOS_AFBC is added */
+    uint64_t mInternalFormat;
 
     // Debug only -- track the sequence of events in each frame so we can make
     // sure they happen in the order we expect. This class implicitly models

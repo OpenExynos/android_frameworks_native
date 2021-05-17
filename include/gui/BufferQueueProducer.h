@@ -91,9 +91,10 @@ public:
     //
     // In both cases, the producer will need to call requestBuffer to get a
     // GraphicBuffer handle for the returned slot.
+    /* Parameter that is used for EXYNOS_AFBC is added */
     virtual status_t dequeueBuffer(int *outSlot, sp<Fence>* outFence,
             bool async, uint32_t width, uint32_t height, PixelFormat format,
-            uint32_t usage);
+            uint32_t usage, int *preferCompression = NULL);
 
     // See IGraphicBufferProducer::detachBuffer
     virtual status_t detachBuffer(int slot);

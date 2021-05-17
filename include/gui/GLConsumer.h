@@ -176,6 +176,12 @@ public:
     // getCurrentCrop returns the cropping rectangle of the current buffer.
     Rect getCurrentCrop() const;
 
+    // getCurrentDssRect returns the Dynamic Surface Scaling Rect with the current buffer.
+    Rect getCurrentDssRect() const;
+
+    // getCurretnDssRatio returns the Dynamic Surface Scaling Ratio with the current buffer.
+    int getCurrentDssRatio() const;
+
     // getCurrentTransform returns the transform of the current buffer.
     uint32_t getCurrentTransform() const;
 
@@ -370,6 +376,12 @@ private:
     // It gets set each time updateTexImage is called.
     Rect mCurrentCrop;
 
+    // mCurrentDssRect is the Dynamic Surface Scaling with the current buffer.
+    Rect mCurrentDssRect;
+
+    // mCurrentDssRatio is the Dynamic Surface Scaling with the current buffer.
+    int mCurrentDssRatio;
+
     // mCurrentTransform is the transform identifier for the current texture. It
     // gets set each time updateTexImage is called.
     uint32_t mCurrentTransform;
@@ -480,6 +492,7 @@ private:
     // mode and releaseTexImage() has been called
     static sp<GraphicBuffer> sReleasedTexImageBuffer;
     sp<EglImage> mReleasedTexImage;
+
 };
 
 // ----------------------------------------------------------------------------

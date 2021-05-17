@@ -158,7 +158,11 @@ bool GraphicBuffer::needsReallocation(uint32_t inWidth, uint32_t inHeight,
     if (static_cast<int>(inWidth) != width) return true;
     if (static_cast<int>(inHeight) != height) return true;
     if (inFormat != format) return true;
+#ifdef USES_WIFI_DISPLAY
+    if (static_cast<uint32_t>(usage) != inUsage) return true;
+#else
     if ((static_cast<uint32_t>(usage) & inUsage) != inUsage) return true;
+#endif
     return false;
 }
 

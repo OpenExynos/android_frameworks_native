@@ -111,6 +111,9 @@ status_t SurfaceFlingerConsumer::acquireBufferLocked(BufferItem* item,
     if (result == NO_ERROR) {
         mTransformToDisplayInverse = item->mTransformToDisplayInverse;
         mSurfaceDamage = item->mSurfaceDamage;
+#ifdef EXYNOS
+        mDataSpace = item->mDataSpace;
+#endif
     }
     return result;
 }
@@ -122,6 +125,12 @@ bool SurfaceFlingerConsumer::getTransformToDisplayInverse() const {
 const Region& SurfaceFlingerConsumer::getSurfaceDamage() const {
     return mSurfaceDamage;
 }
+
+#ifdef EXYNOS
+uint32_t SurfaceFlingerConsumer::getSurfaceDataSpace() const {
+    return mDataSpace;
+}
+#endif
 
 sp<NativeHandle> SurfaceFlingerConsumer::getSidebandStream() const {
     return mConsumer->getSidebandStream();

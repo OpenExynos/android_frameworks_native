@@ -152,6 +152,10 @@ GLConsumer::GLConsumer(const sp<IGraphicBufferConsumer>& bq, uint32_t tex,
             sizeof(mCurrentTransformMatrix));
 
     mConsumer->setConsumerUsageBits(DEFAULT_USAGE_FLAGS);
+#ifdef USES_EXYNOS5_DSS_FEATURE
+    mCurrentDssRect.clear();
+    mCurrentDssRatio = 0;
+#endif
 }
 
 GLConsumer::GLConsumer(const sp<IGraphicBufferConsumer>& bq, uint32_t texTarget,
@@ -451,6 +455,10 @@ status_t GLConsumer::updateAndReleaseLocked(const BufferItem& item)
     mCurrentFence = item.mFence;
     mCurrentFrameNumber = item.mFrameNumber;
 
+#ifdef USES_EXYNOS5_DSS_FEATURE
+    mCurrentDssRect = item.mDssRect;
+    mCurrentDssRatio = item.mDssRatio;
+#endif
     computeCurrentTransformMatrixLocked();
 
     return err;
@@ -936,6 +944,16 @@ uint32_t GLConsumer::getCurrentScalingMode() const {
 sp<Fence> GLConsumer::getCurrentFence() const {
     Mutex::Autolock lock(mMutex);
     return mCurrentFence;
+}
+
+Rect GLConsumer::getCurrentDssRect() const {
+    Mutex::Autolock lock(mMutex);
+    return mCurrentDssRect;
+}
+
+int GLConsumer::getCurrentDssRatio() const {
+    Mutex::Autolock lock(mMutex);
+    return mCurrentDssRatio;
 }
 
 status_t GLConsumer::doGLFenceWait() const {
